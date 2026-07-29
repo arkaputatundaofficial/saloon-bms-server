@@ -56,9 +56,13 @@ router.get("/", async (req, res) => {
 // POST /api/catalogue/services
 router.post("/", requireRole('admin'), async (req, res) => {
     try {
+        const insertData = { ...req.body };
+        delete insertData.id;
+        delete insertData.created_at;
+
         const { data, error } = await req.supabase
             .from("services")
-            .insert([req.body])
+            .insert([insertData])
             .select()
             .single();
 
