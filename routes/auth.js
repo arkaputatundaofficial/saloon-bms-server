@@ -1,0 +1,131 @@
+const express = require('express');
+const { createClient } = require('@supabase/supabase-js');
+const { authenticate } = require('../middleware/auth');
+const router = express.Router();
+const supabase = require('../supabaseClient');
+
+// POST /api/auth/login
+router.post('/login', async (req, res) => {
+    const { email, password } = req.body;
+    
+    const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password
+    });
+
+    if (error) {
+        return res.status(401).json({ error: error.message });
+    }
+
+    const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', data.user.id)
+        .single();
+
+    res.json({
+        ...data,
+        user: {
+            ...data.user,
+            role: profile?.role || null
+        }
+    });
+});
+
+// POST /api/auth/signup
+router.post('/signup', async (req, res) => {
+    const { email, password, full_name, role } = req.body;
+    
+    const { data, error } = await supabase.auth.signUp({
+        email,
+        password
+    });
+
+    if (error) {
+        return res.status(400).json({ error: error.message });
+    }
+
+    // Attempt to insert profile. Note: Requires RLS insert policy on profiles or service role key
+    if (data.user) {
+        try {
+            const supabaseAdmin = createClient(
+                process.env.SUPABASE_URL,
+                process.env.SUPABASE_SECRET
+            );
+            const { error: profileError } = await supabaseAdmin
+                .from('profiles')
+                .insert([{
+                    id: data.user.id,
+                    full_name: full_name || '',
+                    role: role || 'employee'
+                }]);
+                
+            if (profileError) {
+                console.error("Profile creation error:", profileError.message);
+            }
+        } catch (err) {
+            console.error("Failed to initialize admin client:", err.message);
+        }
+    }
+
+    res.json({ success: true, user: data.user });
+});
+
+// POST /api/auth/logout
+router.post('/logout', async (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        const token = authHeader.split(' ')[1];
+        // For MVP, signing out the token locally or on Supabase.
+        // The client supabase instance is required to do this properly
+        // but frontend dropping the token is sufficient for this scope.
+    }
+    res.json({ success: true });
+});
+
+// GET /api/auth/profile
+router.get('/profile', authenticate, async (req, res) => {
+    try {
+        const { data, error } = await req.supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', req.user.id)
+            .single();
+
+        if (error && error.code !== 'PGRST116') throw error;
+        
+        res.json({
+            ...req.user,
+            profile: data || null
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// DELETE /api/auth/account
+router.delete('/account', authenticate, async (req, res) => {
+    try {
+        if (!process.env.SUPABASE_SECRET) {
+            return res.status(500).json({ error: "Server missing SUPABASE_SECRET to perform account deletion." });
+        }
+        
+        // Use service role key to delete user from Auth
+        const supabaseAdmin = createClient(
+            process.env.SUPABASE_URL,
+            process.env.SUPABASE_SECRET
+        );
+        
+        const { error } = await supabaseAdmin.auth.admin.deleteUser(req.user.id);
+        
+        if (error) {
+            throw error;
+        }
+        
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+module.exports = router;
