@@ -72,9 +72,13 @@ router.post("/", requireRole('admin'), async (req, res) => {
 // PUT /api/catalogue/products/:id
 router.put("/:id", requireRole('admin'), async (req, res) => {
     try {
+        const updateData = { ...req.body };
+        delete updateData.id;
+        delete updateData.created_at;
+
         const { data, error } = await req.supabase
             .from("products")
-            .update(req.body)
+            .update(updateData)
             .eq("id", req.params.id)
             .select()
             .single();
