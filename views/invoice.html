@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Invoice #{{INVOICE_ID}}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #4F46E5;
+            --primary-hover: #4338CA;
+            --bg-grad-1: #0f172a;
+            --bg-grad-2: #1e1b4b;
+            --surface: rgba(255, 255, 255, 0.05);
+            --surface-border: rgba(255, 255, 255, 0.1);
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, var(--bg-grad-1), var(--bg-grad-2));
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+        }
+        .invoice-container {
+            background: var(--surface);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--surface-border);
+            border-radius: 24px;
+            padding: 3rem;
+            width: 100%;
+            max-width: 600px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            animation: floatIn 0.6s ease-out forwards;
+        }
+        @keyframes floatIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 2.5rem;
+            border-bottom: 1px solid var(--surface-border);
+            padding-bottom: 2rem;
+        }
+        .brand h1 { font-size: 2rem; font-weight: 700; background: linear-gradient(to right, #818cf8, #c084fc); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .invoice-meta { text-align: right; }
+        .invoice-meta h2 { font-size: 1.25rem; font-weight: 600; color: var(--text-main); }
+        .invoice-meta p { font-size: 0.875rem; color: var(--text-muted); margin-top: 0.25rem; }
+        
+        .details-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            margin-bottom: 2.5rem;
+        }
+        .detail-group label { display: block; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 0.5rem; }
+        .detail-group p { font-size: 1rem; font-weight: 500; }
+        
+        table { width: 100%; border-collapse: collapse; margin-bottom: 2rem; }
+        th { text-align: left; padding: 1rem 0; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); border-bottom: 1px solid var(--surface-border); }
+        td { padding: 1rem 0; font-size: 0.95rem; border-bottom: 1px solid rgba(255,255,255,0.02); }
+        th:last-child, td:last-child { text-align: right; }
+        
+        .totals {
+            margin-left: auto;
+            width: 100%;
+            max-width: 300px;
+        }
+        .total-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.75rem 0;
+            color: var(--text-muted);
+            font-size: 0.95rem;
+        }
+        .total-row.grand-total {
+            color: var(--text-main);
+            font-size: 1.25rem;
+            font-weight: 700;
+            border-top: 1px solid var(--surface-border);
+            margin-top: 0.5rem;
+            padding-top: 1.25rem;
+        }
+        
+        .actions {
+            margin-top: 3rem;
+            display: flex;
+            justify-content: center;
+        }
+        .btn {
+            background: var(--primary);
+            color: white;
+            text-decoration: none;
+            padding: 1rem 2rem;
+            border-radius: 99px;
+            font-weight: 600;
+            font-size: 1rem;
+            transition: all 0.2s ease;
+            box-shadow: 0 10px 15px -3px rgba(79, 70, 229, 0.3);
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .btn:hover { background: var(--primary-hover); transform: translateY(-2px); box-shadow: 0 15px 20px -3px rgba(79, 70, 229, 0.4); }
+        
+        @media (max-width: 600px) {
+            .invoice-container { padding: 2rem 1.5rem; }
+            .header { flex-direction: column; gap: 1.5rem; }
+            .invoice-meta { text-align: left; }
+            .details-grid { grid-template-columns: 1fr; gap: 1.5rem; }
+            th, td { font-size: 0.85rem; }
+        }
+    </style>
+</head>
+<body>
+    <div class="invoice-container">
+        <div class="header">
+            <div class="brand">
+                <h1>Salon BMS</h1>
+            </div>
+            <div class="invoice-meta">
+                <h2>INVOICE #{{INVOICE_ID}}</h2>
+                <p>{{DATE}}</p>
+            </div>
+        </div>
+        
+        <div class="details-grid">
+            <div class="detail-group">
+                <label>Billed To</label>
+                <p>{{PHONE}}</p>
+            </div>
+            <div class="detail-group">
+                <label>Payment Method</label>
+                <p>{{PAYMENT_MODE}}</p>
+            </div>
+        </div>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>Description</th>
+                    <th>Qty</th>
+                    <th>Price</th>
+                    <th>Amount</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{ITEMS_HTML}}
+            </tbody>
+        </table>
+        
+        <div class="totals">
+            <div class="total-row">
+                <span>Subtotal</span>
+                <span>₹{{SUBTOTAL}}</span>
+            </div>
+            <div class="total-row">
+                <span>Discount</span>
+                <span>-₹{{DISCOUNT}}</span>
+            </div>
+            <div class="total-row grand-total">
+                <span>Total</span>
+                <span>₹{{TOTAL}}</span>
+            </div>
+        </div>
+        
+        <div class="actions">
+            <a href="/api/billing/invoices/{{INVOICE_ID}}/pdf" class="btn" download>
+                <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                Download PDF
+            </a>
+        </div>
+    </div>
+</body>
+</html>
