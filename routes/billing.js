@@ -218,13 +218,14 @@ router.post("/invoices", async (req, res) => {
             
         if (itemsError) throw itemsError;
         
-        // 7. Deduct Stock via RPC
+        // 7. Deduct Stock via Update
         for (const ri of resolvedItems) {
             if (ri.item_type === 'product') {
-                await req.supabase.rpc('update_stock_count', {
-                    p_id: ri.item_id,
-                    new_count: ri.current_stock - ri.qty
-                });
+                const { error: updateError } = await req.supabase
+                    .from('products')
+                    .update({ stock_count: ri.current_stock - ri.qty })
+                    .eq('id', ri.item_id);
+                if (updateError) throw updateError;
             }
         }
         
