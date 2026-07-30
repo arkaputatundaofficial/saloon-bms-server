@@ -74,11 +74,23 @@ router.post("/", requireRole('admin'), async (req, res) => {
 });
 
 // PUT /api/catalogue/products/:id
-router.put("/:id", requireRole('admin'), async (req, res) => {
+router.put("/:id", requireRole('admin', 'employee'), async (req, res) => {
     try {
-        const updateData = { ...req.body };
+        let updateData = { ...req.body };
         delete updateData.id;
         delete updateData.created_at;
+
+        if (req.role === 'employee') {
+            const stock_count = updateData.stock_count;
+            updateData = {};
+            if (stock_count !== undefined) {
+                updateData.stock_count = stock_count;
+            }
+        }
+
+        if (Object.keys(updateData).length === 0) {
+            return res.status(400).json({ error: "No valid fields to update or insufficient permissions" });
+        }
 
         const { data, error } = await req.supabase
             .from("products")
