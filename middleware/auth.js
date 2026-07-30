@@ -4,35 +4,27 @@ require('dotenv').config();
 const globalSupabase = require('../supabaseClient');
 
 const authenticate = async (req, res, next) => {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return res.status(401).json({ error: 'Missing or invalid authorization header' });
+    const userId = req.headers['x-user-id'];
+    
+    if (!userId) {
+        return res.status(401).json({ error: 'Missing X-User-Id header' });
     }
 
-    const token = authHeader.split(' ')[1];
-
-    // Verify user by getting user object
-    const { data: { user }, error } = await globalSupabase.auth.getUser(token);
-
-    if (error || !user) {
-        return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    req.user = user;
     req.supabase = globalSupabase; // attach global client
 
-    // Fetch user role from profiles
+    // Fetch user profile based on ID
     const { data: profile, error: profileError } = await globalSupabase
         .from('profiles')
-        .select('role')
-        .eq('id', user.id)
+        .select('*')
+        .eq('id', userId)
         .single();
 
     if (profileError || !profile) {
-        req.role = null; 
-    } else {
-        req.role = profile.role;
+        return res.status(401).json({ error: 'Unauthorized: User not found' });
     }
+
+    req.user = { id: userId, ...profile };
+    req.role = profile.role || null; 
 
     next();
 };
