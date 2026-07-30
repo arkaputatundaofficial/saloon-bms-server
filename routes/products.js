@@ -130,10 +130,10 @@ router.patch("/:id/stock", requireRole('admin', 'employee'), async (req, res) =>
             return res.status(400).json({ error: "stock_count is required" });
         }
 
-        const { error } = await req.supabase.rpc('update_stock_count', {
-            p_id: parseInt(req.params.id),
-            new_count: parseInt(stock_count)
-        });
+        const { error } = await req.supabase
+            .from('products')
+            .update({ stock_count: parseInt(stock_count) })
+            .eq('id', parseInt(req.params.id));
 
         if (error) throw error;
         res.status(200).json({ success: true });
