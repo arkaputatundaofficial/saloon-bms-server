@@ -1,6 +1,8 @@
 const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 
+const globalSupabase = require('../supabaseClient');
+
 const authenticate = async (req, res, next) => {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -9,32 +11,18 @@ const authenticate = async (req, res, next) => {
 
     const token = authHeader.split(' ')[1];
 
-    // Create a request-scoped Supabase client carrying the user's JWT
-    // so RLS is enforced automatically on every query made with this client
-    const supabase = createClient(
-        process.env.SUPABASE_URL,
-        process.env.SUPABASE_KEY,
-        {
-            global: {
-                headers: {
-                    Authorization: `Bearer ${token}`
-                }
-            }
-        }
-    );
-
     // Verify user by getting user object
-    const { data: { user }, error } = await supabase.auth.getUser(token);
+    const { data: { user }, error } = await globalSupabase.auth.getUser(token);
 
     if (error || !user) {
         return res.status(401).json({ error: 'Unauthorized' });
     }
 
     req.user = user;
-    req.supabase = supabase; // attach scoped client
+    req.supabase = globalSupabase; // attach global client
 
     // Fetch user role from profiles
-    const { data: profile, error: profileError } = await supabase
+    const { data: profile, error: profileError } = await globalSupabase
         .from('profiles')
         .select('role')
         .eq('id', user.id)

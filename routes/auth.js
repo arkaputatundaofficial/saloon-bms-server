@@ -48,11 +48,7 @@ router.post('/signup', async (req, res) => {
     // Attempt to insert profile. Note: Requires RLS insert policy on profiles or service role key
     if (data.user) {
         try {
-            const supabaseAdmin = createClient(
-                process.env.SUPABASE_URL,
-                process.env.SUPABASE_SECRET
-            );
-            const { error: profileError } = await supabaseAdmin
+            const { error: profileError } = await supabase
                 .from('profiles')
                 .insert([{
                     id: data.user.id,
@@ -110,13 +106,8 @@ router.delete('/account', authenticate, async (req, res) => {
             return res.status(500).json({ error: "Server missing SUPABASE_SECRET to perform account deletion." });
         }
         
-        // Use service role key to delete user from Auth
-        const supabaseAdmin = createClient(
-            process.env.SUPABASE_URL,
-            process.env.SUPABASE_SECRET
-        );
-        
-        const { error } = await supabaseAdmin.auth.admin.deleteUser(req.user.id);
+        // Use global admin key to delete user from Auth
+        const { error } = await supabase.auth.admin.deleteUser(req.user.id);
         
         if (error) {
             throw error;
