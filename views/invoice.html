@@ -250,8 +250,8 @@
                     tableRows.push([
                         item.item_name,
                         item.qty.toString(),
-                        `$${item.unit_price.toFixed(2)}`,
-                        `$${item.line_total.toFixed(2)}`
+                        `₹${item.unit_price.toFixed(2)}`,
+                        `₹${item.line_total.toFixed(2)}`
                     ]);
                 });
             }
@@ -296,13 +296,13 @@
             doc.setTextColor(labelColor[0], labelColor[1], labelColor[2]);
             doc.text("Subtotal", rightEdge - 100, y);
             doc.setTextColor(textColor[0], textColor[1], textColor[2]);
-            doc.text(`$${invoiceData.subtotal.toFixed(2)}`, rightEdge, y, { align: 'right' });
+            doc.text(`₹${invoiceData.subtotal.toFixed(2)}`, rightEdge, y, { align: 'right' });
             
             y += 20;
             doc.setTextColor(labelColor[0], labelColor[1], labelColor[2]);
             doc.text("Discount", rightEdge - 100, y);
             doc.setTextColor(textColor[0], textColor[1], textColor[2]);
-            doc.text(`-$${invoiceData.discount.toFixed(2)}`, rightEdge, y, { align: 'right' });
+            doc.text(`-₹${invoiceData.discount.toFixed(2)}`, rightEdge, y, { align: 'right' });
             
             y += 15;
             doc.setDrawColor(226, 232, 240);
@@ -313,7 +313,7 @@
             doc.setFont(mainFont, 'bold');
             doc.setTextColor(textColor[0], textColor[1], textColor[2]);
             doc.text("Total", rightEdge - 100, y);
-            doc.text(`$${invoiceData.total.toFixed(2)}`, rightEdge, y, { align: 'right' });
+            doc.text(`₹${invoiceData.total.toFixed(2)}`, rightEdge, y, { align: 'right' });
             
             // Save the document
             doc.save(`invoice_${invoiceData.id}.pdf`);
