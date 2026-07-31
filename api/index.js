@@ -76,7 +76,8 @@ app.get("/:customerId/:billId", async (req, res) => {
             .replace(/{{ITEMS_HTML}}/g, itemsHtml)
             .replace(/{{SUBTOTAL}}/g, invoice.subtotal.toFixed(2))
             .replace(/{{DISCOUNT}}/g, invoice.discount.toFixed(2))
-            .replace(/{{TOTAL}}/g, invoice.total.toFixed(2));
+            .replace(/{{TOTAL}}/g, invoice.total.toFixed(2))
+            .replace(/{{INVOICE_JSON}}/g, JSON.stringify(invoice));
 
         res.send(html);
     } catch (err) {

@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Invoice #{{INVOICE_ID}}</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.1/jspdf.plugin.autotable.min.js"></script>
     <style>
         :root {
             --primary: #4F46E5;
@@ -120,34 +121,6 @@
             .details-grid { grid-template-columns: 1fr; gap: 1.5rem; }
             th, td { font-size: 0.85rem; }
         }
-        
-        body.pdf-print-mode {
-            background: #ffffff !important;
-            color: #000000 !important;
-        }
-        body.pdf-print-mode .invoice-container {
-            background: #ffffff !important;
-            border: none !important;
-            box-shadow: none !important;
-            padding: 1rem !important; /* adjust padding for A4 size */
-        }
-        body.pdf-print-mode .invoice-meta h2,
-        body.pdf-print-mode .detail-group p,
-        body.pdf-print-mode th,
-        body.pdf-print-mode td,
-        body.pdf-print-mode .total-row,
-        body.pdf-print-mode .total-row.grand-total,
-        body.pdf-print-mode .detail-group label,
-        body.pdf-print-mode .invoice-meta p {
-            color: #000000 !important;
-        }
-        body.pdf-print-mode th,
-        body.pdf-print-mode td,
-        body.pdf-print-mode .total-row.grand-total,
-        body.pdf-print-mode .header {
-            border-bottom-color: #e2e8f0 !important;
-            border-top-color: #e2e8f0 !important;
-        }
     </style>
 </head>
 <body>
@@ -202,7 +175,7 @@
             </div>
         </div>
         
-        <div class="actions" data-html2canvas-ignore>
+        <div class="actions">
             <button onclick="downloadPDF()" class="btn" style="border:none; cursor:pointer;">
                 <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
                 Download PDF
@@ -211,19 +184,139 @@
     </div>
 
     <script>
+        const invoiceData = {{INVOICE_JSON}};
+
         function downloadPDF() {
-            document.body.classList.add('pdf-print-mode');
-            const element = document.querySelector('.invoice-container');
-            const opt = {
-                margin:       0.5,
-                filename:     'invoice_{{INVOICE_ID}}.pdf',
-                image:        { type: 'jpeg', quality: 0.98 },
-                html2canvas:  { scale: 2, useCORS: true },
-                jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
-            };
-            html2pdf().set(opt).from(element).save().then(() => {
-                document.body.classList.remove('pdf-print-mode');
+            const { jsPDF } = window.jspdf;
+            
+            // Standard A4 PDF, unit = points (pt)
+            const doc = new jsPDF('p', 'pt', 'a4');
+            
+            // 1. Page Properties (White Background is default)
+            doc.setFillColor(255, 255, 255);
+            doc.rect(0, 0, doc.internal.pageSize.width, doc.internal.pageSize.height, 'F');
+            
+            // 2. Variables for Fonts and Colors
+            const mainFont = 'helvetica';
+            const primaryColor = [79, 70, 229]; // #4F46E5
+            const textColor = [15, 23, 42]; // Very dark blue/black
+            const labelColor = [100, 116, 139]; // Muted gray
+            
+            let y = 50;
+            
+            // 3. Header section
+            doc.setFont(mainFont, 'bold');
+            doc.setFontSize(28);
+            doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+            doc.text("Salon BMS", 40, y);
+            
+            doc.setFontSize(16);
+            doc.setTextColor(textColor[0], textColor[1], textColor[2]);
+            doc.text(`INVOICE #${invoiceData.id}`, doc.internal.pageSize.width - 40, y, { align: 'right' });
+            
+            y += 20;
+            doc.setFontSize(10);
+            doc.setFont(mainFont, 'normal');
+            doc.setTextColor(labelColor[0], labelColor[1], labelColor[2]);
+            doc.text(new Date(invoiceData.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }), doc.internal.pageSize.width - 40, y, { align: 'right' });
+            
+            y += 40;
+            doc.setDrawColor(226, 232, 240); // light gray line
+            doc.setLineWidth(1);
+            doc.line(40, y, doc.internal.pageSize.width - 40, y);
+            
+            y += 30;
+            
+            // 4. Details Section (Billed To & Payment Mode)
+            doc.setFontSize(9);
+            doc.setTextColor(labelColor[0], labelColor[1], labelColor[2]);
+            doc.text("BILLED TO", 40, y);
+            doc.text("PAYMENT METHOD", 300, y);
+            
+            y += 15;
+            doc.setFontSize(12);
+            doc.setFont(mainFont, 'bold');
+            doc.setTextColor(textColor[0], textColor[1], textColor[2]);
+            const customerPhone = (invoiceData.customers && invoiceData.customers.phone) ? invoiceData.customers.phone : 'N/A';
+            doc.text(customerPhone, 40, y);
+            doc.text(invoiceData.payment_mode, 300, y);
+            
+            y += 30;
+            
+            // 5. Build Table Data
+            const tableRows = [];
+            if (invoiceData.invoice_items) {
+                invoiceData.invoice_items.forEach(item => {
+                    tableRows.push([
+                        item.item_name,
+                        item.qty.toString(),
+                        `$${item.unit_price.toFixed(2)}`,
+                        `$${item.line_total.toFixed(2)}`
+                    ]);
+                });
+            }
+            
+            // 6. Generate standard properties Table
+            doc.autoTable({
+                startY: y,
+                head: [['DESCRIPTION', 'QTY', 'PRICE', 'AMOUNT']],
+                body: tableRows,
+                theme: 'plain',
+                styles: {
+                    font: mainFont,
+                    fontSize: 10,
+                    cellPadding: 8,
+                    textColor: textColor
+                },
+                headStyles: {
+                    fontStyle: 'bold',
+                    fontSize: 9,
+                    textColor: labelColor,
+                    lineColor: [226, 232, 240],
+                    lineWidth: { bottom: 1 }
+                },
+                bodyStyles: {
+                    lineColor: [241, 245, 249],
+                    lineWidth: { bottom: 1 }
+                },
+                columnStyles: {
+                    1: { halign: 'right' },
+                    2: { halign: 'right' },
+                    3: { halign: 'right' }
+                },
+                margin: { left: 40, right: 40 }
             });
+            
+            // 7. Totals Section
+            y = doc.lastAutoTable.finalY + 30;
+            const rightEdge = doc.internal.pageSize.width - 40;
+            
+            doc.setFontSize(10);
+            doc.setFont(mainFont, 'normal');
+            doc.setTextColor(labelColor[0], labelColor[1], labelColor[2]);
+            doc.text("Subtotal", rightEdge - 100, y);
+            doc.setTextColor(textColor[0], textColor[1], textColor[2]);
+            doc.text(`$${invoiceData.subtotal.toFixed(2)}`, rightEdge, y, { align: 'right' });
+            
+            y += 20;
+            doc.setTextColor(labelColor[0], labelColor[1], labelColor[2]);
+            doc.text("Discount", rightEdge - 100, y);
+            doc.setTextColor(textColor[0], textColor[1], textColor[2]);
+            doc.text(`-$${invoiceData.discount.toFixed(2)}`, rightEdge, y, { align: 'right' });
+            
+            y += 15;
+            doc.setDrawColor(226, 232, 240);
+            doc.line(rightEdge - 120, y, rightEdge, y);
+            
+            y += 20;
+            doc.setFontSize(14);
+            doc.setFont(mainFont, 'bold');
+            doc.setTextColor(textColor[0], textColor[1], textColor[2]);
+            doc.text("Total", rightEdge - 100, y);
+            doc.text(`$${invoiceData.total.toFixed(2)}`, rightEdge, y, { align: 'right' });
+            
+            // Save the document
+            doc.save(`invoice_${invoiceData.id}.pdf`);
         }
     </script>
 </body>
