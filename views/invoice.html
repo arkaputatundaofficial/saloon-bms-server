@@ -186,18 +186,29 @@
     <script>
         const invoiceData = {{INVOICE_JSON}};
 
-        function downloadPDF() {
+        async function downloadPDF() {
             const { jsPDF } = window.jspdf;
             
             // Standard A4 PDF, unit = points (pt)
             const doc = new jsPDF('p', 'pt', 'a4');
+            
+            // Load custom font to support Unicode ₹ symbol
+            try {
+                const response = await fetch('https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Me5WZLCzYlKw.ttf');
+                const buffer = await response.arrayBuffer();
+                const base64Font = btoa(new Uint8Array(buffer).reduce((data, byte) => data + String.fromCharCode(byte), ''));
+                doc.addFileToVFS('Roboto-Regular.ttf', base64Font);
+                doc.addFont('Roboto-Regular.ttf', 'Roboto', 'normal');
+            } catch (e) {
+                console.error("Failed to load Roboto font", e);
+            }
             
             // 1. Page Properties (White Background is default)
             doc.setFillColor(255, 255, 255);
             doc.rect(0, 0, doc.internal.pageSize.width, doc.internal.pageSize.height, 'F');
             
             // 2. Variables for Fonts and Colors
-            const mainFont = 'helvetica';
+            const mainFont = 'Roboto';
             const primaryColor = [79, 70, 229]; // #4F46E5
             const textColor = [15, 23, 42]; // Very dark blue/black
             const labelColor = [100, 116, 139]; // Muted gray
@@ -310,7 +321,7 @@
             
             y += 20;
             doc.setFontSize(14);
-            doc.setFont(mainFont, 'bold');
+            doc.setFont(mainFont, 'normal'); // fallback to normal weight since we only loaded Roboto-Regular
             doc.setTextColor(textColor[0], textColor[1], textColor[2]);
             doc.text("Total", rightEdge - 100, y);
             doc.text(`₹${invoiceData.total.toFixed(2)}`, rightEdge, y, { align: 'right' });
