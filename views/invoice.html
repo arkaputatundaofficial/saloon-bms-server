@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Invoice #{{INVOICE_ID}}</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <style>
         :root {
             --primary: #4F46E5;
@@ -173,12 +174,26 @@
             </div>
         </div>
         
-        <div class="actions">
-            <a href="/api/billing/invoices/{{INVOICE_ID}}/pdf" class="btn" download>
+        <div class="actions" data-html2canvas-ignore>
+            <button onclick="downloadPDF()" class="btn" style="border:none; cursor:pointer;">
                 <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
                 Download PDF
-            </a>
+            </button>
         </div>
     </div>
+
+    <script>
+        function downloadPDF() {
+            const element = document.querySelector('.invoice-container');
+            const opt = {
+                margin:       0.5,
+                filename:     'invoice_{{INVOICE_ID}}.pdf',
+                image:        { type: 'jpeg', quality: 0.98 },
+                html2canvas:  { scale: 2, useCORS: true },
+                jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
+            };
+            html2pdf().set(opt).from(element).save();
+        }
+    </script>
 </body>
 </html>
