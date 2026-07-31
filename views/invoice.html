@@ -120,6 +120,34 @@
             .details-grid { grid-template-columns: 1fr; gap: 1.5rem; }
             th, td { font-size: 0.85rem; }
         }
+        
+        body.pdf-print-mode {
+            background: #ffffff !important;
+            color: #000000 !important;
+        }
+        body.pdf-print-mode .invoice-container {
+            background: #ffffff !important;
+            border: none !important;
+            box-shadow: none !important;
+            padding: 1rem !important; /* adjust padding for A4 size */
+        }
+        body.pdf-print-mode .invoice-meta h2,
+        body.pdf-print-mode .detail-group p,
+        body.pdf-print-mode th,
+        body.pdf-print-mode td,
+        body.pdf-print-mode .total-row,
+        body.pdf-print-mode .total-row.grand-total,
+        body.pdf-print-mode .detail-group label,
+        body.pdf-print-mode .invoice-meta p {
+            color: #000000 !important;
+        }
+        body.pdf-print-mode th,
+        body.pdf-print-mode td,
+        body.pdf-print-mode .total-row.grand-total,
+        body.pdf-print-mode .header {
+            border-bottom-color: #e2e8f0 !important;
+            border-top-color: #e2e8f0 !important;
+        }
     </style>
 </head>
 <body>
@@ -184,6 +212,7 @@
 
     <script>
         function downloadPDF() {
+            document.body.classList.add('pdf-print-mode');
             const element = document.querySelector('.invoice-container');
             const opt = {
                 margin:       0.5,
@@ -192,7 +221,9 @@
                 html2canvas:  { scale: 2, useCORS: true },
                 jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
             };
-            html2pdf().set(opt).from(element).save();
+            html2pdf().set(opt).from(element).save().then(() => {
+                document.body.classList.remove('pdf-print-mode');
+            });
         }
     </script>
 </body>
