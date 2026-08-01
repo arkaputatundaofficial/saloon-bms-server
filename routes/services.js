@@ -22,29 +22,30 @@ router.get("/", async (req, res) => {
 
         let query = req.supabase
             .from("services")
-            .select("*", { count: "exact" });
+            .select("*");
             
-        if (search) {
-            let orQuery = `name.ilike.%${search}%`;
-            if (!isNaN(parseFloat(search))) {
-                orQuery += `,price.eq.${parseFloat(search)}`;
-            }
-            query = query.or(orQuery);
-        }
-        
-        const { data, count, error } = await query
-            .order('id', { ascending: false })
-            .range(start, end);
+        const { data, error } = await query.order('id', { ascending: false });
 
         if (error) {
             console.error("Services GET error:", error);
             throw error;
         }
 
-        const totalPages = Math.ceil((count || 0) / pageSize);
+        let filteredData = data || [];
+        if (search) {
+            const s = search.toLowerCase();
+            filteredData = filteredData.filter(item => {
+                return (item.name && String(item.name).toLowerCase().includes(s)) ||
+                       (item.price && String(item.price).toLowerCase().includes(s));
+            });
+        }
+
+        const count = filteredData.length;
+        const totalPages = Math.ceil(count / pageSize);
+        const paginatedData = filteredData.slice(start, end + 1);
 
         res.status(200).json({
-            data: data,
+            data: paginatedData,
             pagination: {
                 page,
                 pageSize,
