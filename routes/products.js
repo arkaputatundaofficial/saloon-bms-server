@@ -25,7 +25,11 @@ router.get("/", async (req, res) => {
             .select("*", { count: "exact" });
             
         if (search) {
-            query = query.ilike("name", `%${search}%`);
+            let orQuery = `name.ilike.%${search}%,sku.ilike.%${search}%`;
+            if (!isNaN(parseFloat(search))) {
+                orQuery += `,price.eq.${parseFloat(search)},barcode.ilike.%${search}%`;
+            }
+            query = query.or(orQuery);
         }
         
         const { data, count, error } = await query
