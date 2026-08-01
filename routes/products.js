@@ -38,6 +38,7 @@ router.get("/", async (req, res) => {
                 return (item.name && String(item.name).toLowerCase().includes(s)) ||
                        (item.sku && String(item.sku).toLowerCase().includes(s)) ||
                        (item.barcode && String(item.barcode).toLowerCase().includes(s)) ||
+                       (item.stock_count && String(item.stock_count).toLowerCase().includes(s)) ||
                        (item.price && String(item.price).toLowerCase().includes(s));
             });
         }
