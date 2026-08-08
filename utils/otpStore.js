@@ -1,7 +1,9 @@
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
-const OTP_FILE_PATH = path.join(__dirname, '../otps.json');
+// Use the OS temp directory which is writable in serverless environments like Vercel
+const OTP_FILE_PATH = path.join(os.tmpdir(), 'otps.json');
 
 // Initialize the file if it doesn't exist
 if (!fs.existsSync(OTP_FILE_PATH)) {
