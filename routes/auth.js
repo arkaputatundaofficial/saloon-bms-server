@@ -147,8 +147,13 @@ router.post('/reset-password', async (req, res) => {
         return res.status(400).json({ error: "Invalid OTP or email." });
     }
     
-    // Check expiration
-    const createdAt = new Date(otpData.created_at).getTime();
+    // Check expiration robustly (ensure it parses as UTC if missing timezone offset)
+    let createdAtString = otpData.created_at;
+    if (!createdAtString.endsWith('Z') && !createdAtString.includes('+') && !createdAtString.includes('-')) {
+        createdAtString += 'Z';
+    }
+    const createdAt = new Date(createdAtString).getTime();
+    
     if (Date.now() - createdAt > 5 * 60 * 1000) {
         // Delete expired OTP
         await supabase.from('otps').delete().eq('email', email);
