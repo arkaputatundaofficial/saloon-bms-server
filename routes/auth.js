@@ -9,7 +9,14 @@ const emailjs = require('@emailjs/nodejs');
 router.post('/login', async (req, res) => {
     const { email, password } = req.body;
     
-    const { data, error } = await supabase.auth.signInWithPassword({
+    // Create an ephemeral client so we don't poison the global service_role client with a user session
+    const tempClient = createClient(
+        process.env.SUPABASE_URL,
+        process.env.SUPABASE_SECRET || process.env.SUPABASE_KEY,
+        { auth: { persistSession: false, autoRefreshToken: false } }
+    );
+    
+    const { data, error } = await tempClient.auth.signInWithPassword({
         email,
         password
     });
@@ -37,7 +44,14 @@ router.post('/login', async (req, res) => {
 router.post('/signup', async (req, res) => {
     const { email, password, full_name, role } = req.body;
     
-    const { data, error } = await supabase.auth.signUp({
+    // Create an ephemeral client so we don't poison the global service_role client
+    const tempClient = createClient(
+        process.env.SUPABASE_URL,
+        process.env.SUPABASE_SECRET || process.env.SUPABASE_KEY,
+        { auth: { persistSession: false, autoRefreshToken: false } }
+    );
+    
+    const { data, error } = await tempClient.auth.signUp({
         email,
         password
     });
