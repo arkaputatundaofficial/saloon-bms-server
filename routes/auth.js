@@ -4,7 +4,6 @@ const { authenticate } = require('../middleware/auth');
 const router = express.Router();
 const supabase = require('../supabaseClient');
 const emailjs = require('@emailjs/nodejs');
-const otpStore = require('../utils/otpStore');
 
 // POST /api/auth/login
 router.post('/login', async (req, res) => {
@@ -97,7 +96,21 @@ router.post('/forgot-password', async (req, res) => {
         return res.status(404).json({ error: "User with this email not found." });
     }
     
-    const otp = otpStore.generateOTP(email);
+    // Clean up expired OTPs (older than 5 minutes)
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    await supabase.from('otps').delete().lt('created_at', fiveMinutesAgo);
+
+    const otp = Math.floor(1000 + Math.random() * 9000).toString();
+    
+    // Upsert into Supabase otps table
+    const { error: otpError } = await supabase
+        .from('otps')
+        .upsert([{ email, otp, created_at: new Date().toISOString() }]);
+
+    if (otpError) {
+        console.error("Supabase OTP Error:", otpError);
+        return res.status(500).json({ error: "Failed to store OTP." });
+    }
     
     try {
         await emailjs.send(
@@ -123,10 +136,32 @@ router.post('/forgot-password', async (req, res) => {
 router.post('/reset-password', async (req, res) => {
     const { email, otp, newPassword } = req.body;
     
-    const isValid = otpStore.verifyOTP(email, otp);
-    if (!isValid) {
-        return res.status(400).json({ error: "Invalid or expired OTP." });
+    // Query OTP from Supabase
+    const { data: otpData, error: otpError } = await supabase
+        .from('otps')
+        .select('*')
+        .eq('email', email)
+        .single();
+        
+    if (otpError || !otpData) {
+        return res.status(400).json({ error: "Invalid OTP or email." });
     }
+    
+    // Check expiration
+    const createdAt = new Date(otpData.created_at).getTime();
+    if (Date.now() - createdAt > 5 * 60 * 1000) {
+        // Delete expired OTP
+        await supabase.from('otps').delete().eq('email', email);
+        return res.status(400).json({ error: "OTP has expired." });
+    }
+    
+    // Check if OTP matches
+    if (otpData.otp !== otp) {
+        return res.status(400).json({ error: "Invalid OTP." });
+    }
+    
+    // OTP is valid, delete it
+    await supabase.from('otps').delete().eq('email', email);
     
     const { data: { users }, error } = await supabase.auth.admin.listUsers();
     
