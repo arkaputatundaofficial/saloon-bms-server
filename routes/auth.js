@@ -104,7 +104,7 @@ router.post('/forgot-password', async (req, res) => {
             process.env.EMAILJS_SERVICE_ID,
             process.env.EMAILJS_TEMPLATE_ID,
             {
-                to_email: email,
+                email: email,
                 otp: otp
             },
             {
