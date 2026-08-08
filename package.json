@@ -9,6 +9,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@emailjs/nodejs": "^5.0.2",
     "@supabase/supabase-js": "^2.110.8",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",

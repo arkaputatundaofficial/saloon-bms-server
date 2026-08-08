@@ -3,6 +3,8 @@ const { createClient } = require('@supabase/supabase-js');
 const { authenticate } = require('../middleware/auth');
 const router = express.Router();
 const supabase = require('../supabaseClient');
+const emailjs = require('@emailjs/nodejs');
+const otpStore = require('../utils/otpStore');
 
 // POST /api/auth/login
 router.post('/login', async (req, res) => {
@@ -77,6 +79,76 @@ router.post('/logout', async (req, res) => {
         // but frontend dropping the token is sufficient for this scope.
     }
     res.json({ success: true });
+});
+
+// POST /api/auth/forgot-password
+router.post('/forgot-password', async (req, res) => {
+    const { email } = req.body;
+    
+    // Check if user exists
+    const { data: { users }, error } = await supabase.auth.admin.listUsers();
+    
+    if (error) {
+        return res.status(500).json({ error: error.message });
+    }
+    
+    const user = users.find(u => u.email === email);
+    if (!user) {
+        return res.status(404).json({ error: "User with this email not found." });
+    }
+    
+    const otp = otpStore.generateOTP(email);
+    
+    try {
+        await emailjs.send(
+            process.env.EMAILJS_SERVICE_ID,
+            process.env.EMAILJS_TEMPLATE_ID,
+            {
+                to_email: email,
+                otp: otp
+            },
+            {
+                publicKey: process.env.EMAILJS_PUBLIC_KEY,
+                privateKey: process.env.EMAILJS_PRIVATE_KEY
+            }
+        );
+        res.json({ success: true, message: "OTP sent to email." });
+    } catch (err) {
+        console.error("EmailJS Error:", err);
+        res.status(500).json({ error: "Failed to send OTP email." });
+    }
+});
+
+// POST /api/auth/reset-password
+router.post('/reset-password', async (req, res) => {
+    const { email, otp, newPassword } = req.body;
+    
+    const isValid = otpStore.verifyOTP(email, otp);
+    if (!isValid) {
+        return res.status(400).json({ error: "Invalid or expired OTP." });
+    }
+    
+    const { data: { users }, error } = await supabase.auth.admin.listUsers();
+    
+    if (error) {
+        return res.status(500).json({ error: error.message });
+    }
+    
+    const user = users.find(u => u.email === email);
+    if (!user) {
+        return res.status(404).json({ error: "User not found." });
+    }
+    
+    const { error: updateError } = await supabase.auth.admin.updateUserById(
+        user.id,
+        { password: newPassword }
+    );
+    
+    if (updateError) {
+        return res.status(500).json({ error: updateError.message });
+    }
+    
+    res.json({ success: true, message: "Password updated successfully." });
 });
 
 // GET /api/auth/profile
