@@ -232,16 +232,38 @@ router.delete('/account', authenticate, async (req, res) => {
             return res.status(500).json({ error: "Server missing SUPABASE_SECRET to perform account deletion." });
         }
         
-        // Use global admin key to delete user from Auth
+        // 1. Unlink user from any invoices to prevent foreign key constraint violations
+        const { error: unlinkError } = await supabase
+            .from('invoices')
+            .update({ employee_id: null })
+            .eq('employee_id', req.user.id);
+            
+        if (unlinkError) {
+            console.error("Warning: Failed to unlink invoices:", unlinkError);
+        }
+
+        // 2. Explicitly delete profile to resolve any constraints
+        const { error: profileError } = await supabase
+            .from('profiles')
+            .delete()
+            .eq('id', req.user.id);
+            
+        if (profileError) {
+            console.error("Warning: Failed to delete profile:", profileError);
+        }
+
+        // 3. Use global admin key to delete user from Auth
         const { error } = await supabase.auth.admin.deleteUser(req.user.id);
         
         if (error) {
+            console.error("Supabase deleteUser error:", error);
             throw error;
         }
         
         res.json({ success: true });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error("Account deletion exception:", err);
+        res.status(500).json({ error: err.message || err });
     }
 });
 
