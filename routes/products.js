@@ -24,6 +24,10 @@ router.get("/", async (req, res) => {
             .from("products")
             .select("*");
             
+        if (req.query.for_sale !== undefined) {
+            query = query.eq('for_sale', req.query.for_sale === 'true');
+        }
+            
         const { data, error } = await query.order('id', { ascending: false });
 
         if (error) {
