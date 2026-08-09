@@ -112,13 +112,19 @@ router.post("/invoices", async (req, res) => {
         // 2. Resolve item prices and names from server
         let subtotal = 0;
         const resolvedItems = [];
+        const stockDeductions = {};
         
         for (const item of items) {
             if (item.item_type === 'product') {
                 const { data: prod, error } = await req.supabase.from("products").select("*").eq("id", item.item_id).single();
                 if (error || !prod) return res.status(400).json({ error: `Product ID ${item.item_id} not found` });
                 
-                if (prod.stock_count < item.qty) {
+                if (!stockDeductions[prod.id]) {
+                    stockDeductions[prod.id] = { current_stock: prod.stock_count, deduct_qty: 0, name: prod.name };
+                }
+                stockDeductions[prod.id].deduct_qty += item.qty;
+                
+                if (stockDeductions[prod.id].current_stock < stockDeductions[prod.id].deduct_qty) {
                     return res.status(400).json({ error: `Insufficient stock for ${prod.name}` });
                 }
                 
@@ -131,13 +137,27 @@ router.post("/invoices", async (req, res) => {
                     item_name: prod.name,
                     qty: item.qty,
                     unit_price: prod.price,
-                    line_total: lineTotal,
-                    current_stock: prod.stock_count // needed for deduction
+                    line_total: lineTotal
                 });
                 
             } else if (item.item_type === 'service') {
-                const { data: serv, error } = await req.supabase.from("services").select("*").eq("id", item.item_id).single();
+                const { data: serv, error } = await req.supabase.from("services").select('*, service_products(quantity, products(*))').eq("id", item.item_id).single();
                 if (error || !serv) return res.status(400).json({ error: `Service ID ${item.item_id} not found` });
+                
+                if (serv.service_products) {
+                    for (const sp of serv.service_products) {
+                        if (sp.products) {
+                            const prod = sp.products;
+                            if (!stockDeductions[prod.id]) {
+                                stockDeductions[prod.id] = { current_stock: prod.stock_count, deduct_qty: 0, name: prod.name };
+                            }
+                            stockDeductions[prod.id].deduct_qty += sp.quantity * item.qty;
+                            if (stockDeductions[prod.id].current_stock < stockDeductions[prod.id].deduct_qty) {
+                                return res.status(400).json({ error: `Insufficient stock for ${prod.name} (required for service ${serv.name})` });
+                            }
+                        }
+                    }
+                }
                 
                 const lineTotal = serv.price * item.qty;
                 subtotal += lineTotal;
@@ -219,12 +239,13 @@ router.post("/invoices", async (req, res) => {
         if (itemsError) throw itemsError;
         
         // 7. Deduct Stock via Update
-        for (const ri of resolvedItems) {
-            if (ri.item_type === 'product') {
+        for (const prodId of Object.keys(stockDeductions)) {
+            const deduct = stockDeductions[prodId];
+            if (deduct.deduct_qty > 0) {
                 const { error: updateError } = await req.supabase
                     .from('products')
-                    .update({ stock_count: ri.current_stock - ri.qty })
-                    .eq('id', ri.item_id);
+                    .update({ stock_count: deduct.current_stock - deduct.deduct_qty })
+                    .eq('id', prodId);
                 if (updateError) throw updateError;
             }
         }

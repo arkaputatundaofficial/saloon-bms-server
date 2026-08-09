@@ -22,7 +22,7 @@ router.get("/", async (req, res) => {
 
         let query = req.supabase
             .from("services")
-            .select("*");
+            .select('*, service_products(quantity, products(*))');
             
         const { data, error } = await query.order('id', { ascending: false });
 
@@ -65,6 +65,9 @@ router.post("/", requireRole('admin'), async (req, res) => {
         delete insertData.id;
         delete insertData.created_at;
 
+        const linkedProducts = insertData.linked_products;
+        delete insertData.linked_products;
+
         const { data, error } = await req.supabase
             .from("services")
             .insert([insertData])
@@ -72,6 +75,17 @@ router.post("/", requireRole('admin'), async (req, res) => {
             .single();
 
         if (error) throw error;
+
+        if (linkedProducts && linkedProducts.length > 0) {
+            const spData = linkedProducts.map(lp => ({
+                service_id: data.id,
+                product_id: lp.product_id,
+                quantity: lp.quantity
+            }));
+            const { error: spError } = await req.supabase.from("service_products").insert(spData);
+            if (spError) throw spError;
+        }
+
         res.status(201).json(data);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -85,6 +99,9 @@ router.put("/:id", requireRole('admin'), async (req, res) => {
         delete updateData.id;
         delete updateData.created_at;
 
+        const linkedProducts = updateData.linked_products;
+        delete updateData.linked_products;
+
         const { data, error } = await req.supabase
             .from("services")
             .update(updateData)
@@ -93,6 +110,20 @@ router.put("/:id", requireRole('admin'), async (req, res) => {
             .single();
 
         if (error) throw error;
+
+        if (linkedProducts !== undefined) {
+            await req.supabase.from("service_products").delete().eq("service_id", data.id);
+            if (linkedProducts.length > 0) {
+                const spData = linkedProducts.map(lp => ({
+                    service_id: data.id,
+                    product_id: lp.product_id,
+                    quantity: lp.quantity
+                }));
+                const { error: spError } = await req.supabase.from("service_products").insert(spData);
+                if (spError) throw spError;
+            }
+        }
+
         res.status(200).json(data);
     } catch (err) {
         res.status(500).json({ error: err.message });
