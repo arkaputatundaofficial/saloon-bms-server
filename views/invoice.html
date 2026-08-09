@@ -219,7 +219,7 @@
             let y = 50;
             
             // 3. Header section
-            doc.setFont(mainFont, 'bold');
+            doc.setFont(mainFont, 'normal');
             doc.setFontSize(28);
             doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
             doc.text("Salon BMS", 40, y);
@@ -249,7 +249,7 @@
             
             y += 15;
             doc.setFontSize(12);
-            doc.setFont(mainFont, 'bold');
+            doc.setFont(mainFont, 'normal');
             doc.setTextColor(textColor[0], textColor[1], textColor[2]);
             const customerPhone = (invoiceData.customers && invoiceData.customers.phone) ? invoiceData.customers.phone : 'N/A';
             doc.text(customerPhone, 40, y);
@@ -283,7 +283,7 @@
                     textColor: textColor
                 },
                 headStyles: {
-                    fontStyle: 'bold',
+                    fontStyle: 'normal',
                     fontSize: 9,
                     textColor: labelColor,
                     lineColor: [226, 232, 240],
