@@ -68,7 +68,8 @@ router.post('/signup', async (req, res) => {
                 .insert([{
                     id: data.user.id,
                     full_name: full_name || '',
-                    role: role || 'employee'
+                    role: role || 'employee',
+                    email: email
                 }]);
                 
             if (profileError) {
@@ -98,15 +99,14 @@ router.post('/logout', async (req, res) => {
 router.post('/forgot-password', async (req, res) => {
     const { email } = req.body;
     
-    // Check if user exists
-    const { data: { users }, error } = await supabase.auth.admin.listUsers();
+    // Check if user exists via profiles table
+    const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('id, email')
+        .eq('email', email)
+        .single();
     
-    if (error) {
-        return res.status(500).json({ error: error.message });
-    }
-    
-    const user = users.find(u => u.email === email);
-    if (!user) {
+    if (error || !profile) {
         return res.status(404).json({ error: "User with this email not found." });
     }
     
@@ -182,19 +182,18 @@ router.post('/reset-password', async (req, res) => {
     // OTP is valid, delete it
     await supabase.from('otps').delete().eq('email', email);
     
-    const { data: { users }, error } = await supabase.auth.admin.listUsers();
+    const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('id, email')
+        .eq('email', email)
+        .single();
     
-    if (error) {
-        return res.status(500).json({ error: error.message });
-    }
-    
-    const user = users.find(u => u.email === email);
-    if (!user) {
+    if (error || !profile) {
         return res.status(404).json({ error: "User not found." });
     }
     
     const { error: updateError } = await supabase.auth.admin.updateUserById(
-        user.id,
+        profile.id,
         { password: newPassword }
     );
     
