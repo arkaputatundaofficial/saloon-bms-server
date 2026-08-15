@@ -40,8 +40,7 @@ app.get("/:customerId/:billId", async (req, res) => {
             .from("invoices")
             .select(`
                 *,
-                customers ( phone ),
-                invoice_items ( item_name, qty, unit_price, line_total )
+                customers ( phone )
             `)
             .eq("id", billId)
             .eq("customer_id", customerId)
@@ -56,7 +55,7 @@ app.get("/:customerId/:billId", async (req, res) => {
             `);
         }
 
-        const itemsHtml = invoice.invoice_items.map(item => `
+        const itemsHtml = (invoice.items || []).map(item => `
             <tr>
                 <td>${item.item_name}</td>
                 <td>${item.qty}</td>

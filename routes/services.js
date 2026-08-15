@@ -44,6 +44,18 @@ router.get("/", async (req, res) => {
         const totalPages = Math.ceil(count / pageSize);
         const paginatedData = filteredData.slice(start, end + 1);
 
+        if (req.query.all === 'true') {
+            return res.status(200).json({
+                data: filteredData,
+                pagination: {
+                    page: 1,
+                    pageSize: filteredData.length,
+                    totalItems: filteredData.length,
+                    totalPages: 1
+                }
+            });
+        }
+
         res.status(200).json({
             data: paginatedData,
             pagination: {
@@ -125,6 +137,24 @@ router.put("/:id", requireRole('admin'), async (req, res) => {
         }
 
         res.status(200).json(data);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// DELETE /api/catalogue/services (Bulk delete)
+router.delete("/", requireRole('admin'), async (req, res) => {
+    try {
+        // Delete all service_products first
+        await req.supabase.from("service_products").delete().neq("service_id", 0);
+        
+        const { error } = await req.supabase
+            .from("services")
+            .delete()
+            .neq("id", 0);
+
+        if (error) throw error;
+        res.status(200).json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

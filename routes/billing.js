@@ -1,7 +1,8 @@
 const express = require("express");
 const router = express.Router();
 const PDFDocument = require("pdfkit");
-const { authenticate } = require("../middleware/auth");
+const { authenticate, requireRole } = require("../middleware/auth");
+const xlsx = require("xlsx");
 
 router.use(authenticate);
 
@@ -205,7 +206,7 @@ router.post("/invoices", async (req, res) => {
         const earnedPoints = Math.floor(total / 100);
         
         // --- Database Writes ---
-        // 5. Insert Invoice
+        // 5. Insert Invoice (including all items directly in the table)
         const { data: invoice, error: invoiceError } = await req.supabase
             .from("invoices")
             .insert([{
@@ -214,31 +215,15 @@ router.post("/invoices", async (req, res) => {
                 subtotal,
                 discount: discountAmount,
                 total,
-                payment_mode
+                payment_mode,
+                items: resolvedItems
             }])
             .select()
             .single();
             
         if (invoiceError) throw invoiceError;
-
-        // 6. Insert Invoice Items
-        const invoiceItemsData = resolvedItems.map(ri => ({
-            invoice_id: invoice.id,
-            item_type: ri.item_type,
-            item_id: ri.item_id,
-            item_name: ri.item_name,
-            qty: ri.qty,
-            unit_price: ri.unit_price,
-            line_total: ri.line_total
-        }));
         
-        const { error: itemsError } = await req.supabase
-            .from("invoice_items")
-            .insert(invoiceItemsData);
-            
-        if (itemsError) throw itemsError;
-        
-        // 7. Deduct Stock via Update
+        // 6. Deduct Stock via Update
         for (const prodId of Object.keys(stockDeductions)) {
             const deduct = stockDeductions[prodId];
             if (deduct.deduct_qty > 0) {
@@ -250,18 +235,130 @@ router.post("/invoices", async (req, res) => {
             }
         }
         
-        // 8. Update Customer Points
+        // 7. Update Customer Points
         await req.supabase
             .from("customers")
             .update({ loyalty_points: customer.loyalty_points + earnedPoints })
             .eq("id", customer.id);
 
-        res.status(201).json({ ...invoice, items: invoiceItemsData });
+        res.status(201).json(invoice);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
 
+
+// POST /api/billing/export (Admin only)
+router.post("/export", requireRole('admin'), async (req, res) => {
+    try {
+        const { tables, dateRange, customRange } = req.body;
+
+        if (!tables || !tables.length) {
+            return res.status(400).json({ error: "No tables specified for export" });
+        }
+
+        // 1. Determine date filtering boundaries
+        let startDate = null;
+        let endDate = new Date();
+
+        if (dateRange && dateRange !== 'all') {
+            if (dateRange === 'last_month') {
+                startDate = new Date();
+                startDate.setMonth(startDate.getMonth() - 1);
+            } else if (dateRange === 'last_3_months') {
+                startDate = new Date();
+                startDate.setMonth(startDate.getMonth() - 3);
+            } else if (dateRange === 'last_6_months') {
+                startDate = new Date();
+                startDate.setMonth(startDate.getMonth() - 6);
+            } else if (dateRange === 'last_year') {
+                startDate = new Date();
+                startDate.setFullYear(startDate.getFullYear() - 1);
+            } else if (dateRange === 'custom' && customRange && customRange.start && customRange.end) {
+                startDate = new Date(customRange.start);
+                endDate = new Date(customRange.end);
+            }
+        }
+
+        const wb = xlsx.utils.book_new();
+
+        // Helper to perform query with date range if table is timestamped
+        const fetchTableData = async (tableName, hasDate) => {
+            let q = req.supabase.from(tableName).select("*");
+            if (hasDate && startDate) {
+                q = q.gte("created_at", startDate.toISOString()).lte("created_at", endDate.toISOString());
+            }
+            const { data, error } = await q;
+            if (error) throw error;
+            return data || [];
+        };
+
+        const appendSheetSafe = (wb, data, sheetName) => {
+            let ws;
+            if (data && data.length > 0) {
+                ws = xlsx.utils.json_to_sheet(data);
+            } else {
+                ws = xlsx.utils.json_to_sheet([{ "System Message": "No records found in this table for the selected range." }]);
+            }
+            xlsx.utils.book_append_sheet(wb, ws, sheetName);
+        };
+
+        // 2. Fetch and append sheets
+        if (tables.includes("users")) {
+            const data = await fetchTableData("profiles", true);
+            appendSheetSafe(wb, data, "Users");
+        }
+        if (tables.includes("customers")) {
+            const data = await fetchTableData("customers", true);
+            appendSheetSafe(wb, data, "Customers");
+        }
+        if (tables.includes("invoices")) {
+            const invoices = await fetchTableData("invoices", true);
+            const formattedInvoices = invoices.map(inv => {
+                const copy = { ...inv };
+                if (copy.items && typeof copy.items === 'object') {
+                    copy.items = JSON.stringify(copy.items);
+                }
+                return copy;
+            });
+            appendSheetSafe(wb, formattedInvoices, "Invoices");
+        }
+        if (tables.includes("products")) {
+            const data = await fetchTableData("products", false);
+            appendSheetSafe(wb, data, "Products");
+        }
+        if (tables.includes("services")) {
+            const data = await fetchTableData("services", false);
+            appendSheetSafe(wb, data, "Services");
+
+            const serviceIds = data.map(s => s.id);
+            let serviceProducts = [];
+            if (serviceIds.length > 0) {
+                const { data: spData, error } = await req.supabase
+                    .from("service_products")
+                    .select("*")
+                    .in("service_id", serviceIds);
+                if (error) throw error;
+                serviceProducts = spData || [];
+            }
+            appendSheetSafe(wb, serviceProducts, "Service Products");
+        }
+        if (tables.includes("loyalty_rules")) {
+            const data = await fetchTableData("loyalty_rules", false);
+            appendSheetSafe(wb, data, "Loyalty Rules");
+        }
+
+        // 3. Write Excel file to buffer and return it
+        const buffer = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        res.setHeader("Content-Disposition", "attachment; filename=export.xlsx");
+        res.send(buffer);
+
+    } catch (err) {
+        console.error("Export Error:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
 
 module.exports = router;

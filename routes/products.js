@@ -51,6 +51,18 @@ router.get("/", async (req, res) => {
         const totalPages = Math.ceil(count / pageSize);
         const paginatedData = filteredData.slice(start, end + 1);
 
+        if (req.query.all === 'true') {
+            return res.status(200).json({
+                data: filteredData,
+                pagination: {
+                    page: 1,
+                    pageSize: filteredData.length,
+                    totalItems: filteredData.length,
+                    totalPages: 1
+                }
+            });
+        }
+
         res.status(200).json({
             data: paginatedData,
             pagination: {
@@ -113,6 +125,24 @@ router.put("/:id", requireRole('admin', 'employee'), async (req, res) => {
 
         if (error) throw error;
         res.status(200).json(data);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// DELETE /api/catalogue/products (Bulk delete)
+router.delete("/", requireRole('admin'), async (req, res) => {
+    try {
+        // Delete all service_products because they reference products
+        await req.supabase.from("service_products").delete().neq("service_id", 0);
+        
+        const { error } = await req.supabase
+            .from("products")
+            .delete()
+            .neq("id", 0);
+
+        if (error) throw error;
+        res.status(200).json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -203,6 +233,61 @@ router.post("/bulk-import", requireRole('admin'), upload.single("file"), async (
         }
 
         res.status(200).json({ report });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /api/catalogue/products/parse-file
+router.post("/parse-file", requireRole('admin'), upload.single("file"), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: "No file provided" });
+        }
+
+        let parsedData = [];
+        let linksData = [];
+
+        if (req.file.mimetype === 'text/csv' || req.file.originalname.endsWith('.csv')) {
+            const csvString = req.file.buffer.toString('utf-8');
+            const result = Papa.parse(csvString, { header: true, skipEmptyLines: true });
+            parsedData = result.data;
+        } else if (req.file.originalname.endsWith('.xlsx') || req.file.originalname.endsWith('.xls')) {
+            const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+            const sheetName = workbook.SheetNames[0];
+            parsedData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
+
+            // Check for service products links worksheet (case-insensitive)
+            const linkSheetName = workbook.SheetNames.find(name => {
+                const lower = name.toLowerCase();
+                return lower.includes("link") || lower.includes("service product") || lower.includes("service_product");
+            });
+            if (linkSheetName) {
+                linksData = xlsx.utils.sheet_to_json(workbook.Sheets[linkSheetName]);
+            }
+        } else {
+            return res.status(400).json({ error: "Invalid file type. Only CSV or XLSX allowed." });
+        }
+
+        // Helper to normalize objects
+        const normalizeKeys = (arr) => {
+            return arr.map(item => {
+                const keys = Object.keys(item);
+                const newItem = {};
+                for (const key of keys) {
+                    const normKey = key.trim().toLowerCase();
+                    let val = item[key];
+                    if (typeof val === 'string') val = val.trim();
+                    newItem[normKey] = val;
+                }
+                return newItem;
+            });
+        };
+
+        const formattedItems = normalizeKeys(parsedData);
+        const formattedLinks = normalizeKeys(linksData);
+
+        res.status(200).json({ items: formattedItems, links: formattedLinks });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
