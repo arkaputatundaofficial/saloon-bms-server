@@ -4,6 +4,36 @@ const { authenticate } = require('../middleware/auth');
 const router = express.Router();
 const supabase = require('../supabaseClient');
 const emailjs = require('@emailjs/nodejs');
+const crypto = require('crypto');
+
+// Reversible encryption helpers using AES-256-CBC
+const ENCRYPTION_KEY = (process.env.SUPABASE_SECRET || 'fallback_secret_key_32_chars_long').substring(0, 32);
+const IV_LENGTH = 16;
+
+function encrypt(text) {
+    if (!text) return "";
+    let iv = crypto.randomBytes(IV_LENGTH);
+    let cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY), iv);
+    let encrypted = cipher.update(text);
+    encrypted = Buffer.concat([encrypted, cipher.final()]);
+    return iv.toString('hex') + ':' + encrypted.toString('hex');
+}
+
+function decrypt(text) {
+    if (!text) return "";
+    try {
+        let textParts = text.split(':');
+        let iv = Buffer.from(textParts.shift(), 'hex');
+        let encryptedText = Buffer.from(textParts.join(':'), 'hex');
+        let decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY), iv);
+        let decrypted = decipher.update(encryptedText);
+        decrypted = Buffer.concat([decrypted, decipher.final()]);
+        return decrypted.toString();
+    } catch (e) {
+        console.error("Decryption failed:", e);
+        return "";
+    }
+}
 
 // POST /api/auth/login
 router.post('/login', async (req, res) => {
@@ -27,15 +57,19 @@ router.post('/login', async (req, res) => {
 
     const { data: profile } = await supabase
         .from('profiles')
-        .select('role')
+        .select('role, full_name, password')
         .eq('id', data.user.id)
         .single();
+
+    const decryptedPassword = profile?.password ? decrypt(profile.password) : "";
 
     res.json({
         ...data,
         user: {
             ...data.user,
-            role: profile?.role || null
+            role: profile?.role || null,
+            full_name: profile?.full_name || null,
+            password: decryptedPassword
         }
     });
 });
@@ -69,7 +103,8 @@ router.post('/signup', async (req, res) => {
                     id: data.user.id,
                     full_name: full_name || '',
                     role: role || 'employee',
-                    email: email
+                    email: email,
+                    password: encrypt(password)
                 }]);
                 
             if (profileError) {
@@ -215,6 +250,10 @@ router.get('/profile', authenticate, async (req, res) => {
 
         if (error && error.code !== 'PGRST116') throw error;
         
+        if (data && data.password) {
+            data.password = decrypt(data.password);
+        }
+        
         res.json({
             ...req.user,
             profile: data || null
@@ -263,6 +302,77 @@ router.delete('/account', authenticate, async (req, res) => {
     } catch (err) {
         console.error("Account deletion exception:", err);
         res.status(500).json({ error: err.message || err });
+    }
+});
+
+// PUT /api/auth/profile
+router.put('/profile', authenticate, async (req, res) => {
+    try {
+        const { full_name, email, password } = req.body;
+        if (!full_name || !email) {
+            return res.status(400).json({ error: "Name and email are required" });
+        }
+
+        // Check if email already exists on another account
+        const { data: existingUser, error: checkError } = await supabase
+            .from('profiles')
+            .select('id')
+            .eq('email', email)
+            .neq('id', req.user.id)
+            .maybeSingle();
+
+        if (checkError) throw checkError;
+        if (existingUser) {
+            return res.status(400).json({ error: "Email already exists" });
+        }
+
+        // 1. Update Supabase Auth email if it changed
+        if (email !== req.user.email) {
+            const { error: authError } = await supabase.auth.admin.updateUserById(
+                req.user.id,
+                { email: email }
+            );
+            if (authError) {
+                return res.status(500).json({ error: "Failed to update auth email: " + authError.message });
+            }
+        }
+
+        // 1b. Update Supabase Auth password if provided
+        if (password) {
+            const { error: authError } = await supabase.auth.admin.updateUserById(
+                req.user.id,
+                { password: password }
+            );
+            if (authError) {
+                return res.status(500).json({ error: "Failed to update auth password: " + authError.message });
+            }
+        }
+
+        // 2. Update profiles table
+        const updateData = { full_name, email };
+        if (password) {
+            updateData.password = encrypt(password);
+        }
+
+        const { data, error } = await supabase
+            .from('profiles')
+            .update(updateData)
+            .eq('id', req.user.id)
+            .select()
+            .single();
+
+        if (error) throw error;
+
+        if (data && data.password) {
+            data.password = decrypt(data.password);
+        }
+
+        res.json({
+            success: true,
+            profile: data
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
 });
 
