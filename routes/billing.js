@@ -326,7 +326,30 @@ router.post("/export", requireRole('admin'), async (req, res) => {
         }
         if (tables.includes("products")) {
             const data = await fetchTableData("products", false);
-            appendSheetSafe(wb, data, "Products");
+            
+            const { data: allCategories } = await req.supabase
+                .from("categories")
+                .select("*");
+            
+            const productCategoryMap = {};
+            if (allCategories) {
+                allCategories.forEach(cat => {
+                    if (cat.product_ids) {
+                        cat.product_ids.forEach(pId => {
+                            productCategoryMap[pId] = cat.name;
+                        });
+                    }
+                });
+            }
+
+            const formattedProducts = (data || []).map(prod => {
+                return {
+                    ...prod,
+                    category: productCategoryMap[prod.id] || null
+                };
+            });
+
+            appendSheetSafe(wb, formattedProducts, "Products");
         }
         if (tables.includes("services")) {
             const data = await fetchTableData("services", false);
