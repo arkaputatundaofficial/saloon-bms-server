@@ -10,6 +10,51 @@ const upload = multer({ storage: multer.memoryStorage() });
 // Apply authentication middleware to all routes in this file
 router.use(authenticate);
 
+// Helper to update categories table and remove empty ones
+async function updateProductCategoryRelation(supabase, productId, newCategoryName) {
+    const { data: existingCats } = await supabase
+        .from("categories")
+        .select("*");
+
+    if (existingCats) {
+        for (const cat of existingCats) {
+            if (cat.product_ids && cat.product_ids.includes(productId)) {
+                if (newCategoryName && cat.name.toLowerCase() === newCategoryName.toLowerCase()) {
+                    newCategoryName = null; // Already correctly linked
+                } else {
+                    const updatedIds = cat.product_ids.filter(id => id !== productId);
+                    if (updatedIds.length === 0) {
+                        await supabase.from("categories").delete().eq("id", cat.id);
+                    } else {
+                        await supabase.from("categories").update({ product_ids: updatedIds }).eq("id", cat.id);
+                    }
+                }
+            }
+        }
+    }
+
+    if (newCategoryName) {
+        const { data: targetCat } = await supabase
+            .from("categories")
+            .select("*")
+            .ilike("name", newCategoryName)
+            .maybeSingle();
+
+        if (targetCat) {
+            const updatedIds = [...(targetCat.product_ids || [])];
+            if (!updatedIds.includes(productId)) {
+                updatedIds.push(productId);
+                await supabase.from("categories").update({ product_ids: updatedIds }).eq("id", targetCat.id);
+            }
+        } else {
+            await supabase.from("categories").insert([{
+                name: newCategoryName,
+                product_ids: [productId]
+            }]);
+        }
+    }
+}
+
 // GET /api/catalogue/products
 router.get("/", async (req, res) => {
     try {
@@ -35,7 +80,26 @@ router.get("/", async (req, res) => {
             throw error;
         }
 
+        const { data: allCategories } = await req.supabase
+            .from("categories")
+            .select("*");
+            
+        const productCategoryMap = {};
+        if (allCategories) {
+            allCategories.forEach(cat => {
+                if (cat.product_ids) {
+                    cat.product_ids.forEach(pId => {
+                        productCategoryMap[pId] = cat.name;
+                    });
+                }
+            });
+        }
+
         let filteredData = data || [];
+        filteredData.forEach(item => {
+            item.category = productCategoryMap[item.id] || null;
+        });
+
         if (search) {
             const s = search.toLowerCase();
             filteredData = filteredData.filter(item => {
@@ -43,7 +107,8 @@ router.get("/", async (req, res) => {
                        (item.sku && String(item.sku).toLowerCase().includes(s)) ||
                        (item.barcode && String(item.barcode).toLowerCase().includes(s)) ||
                        (item.stock_count && String(item.stock_count).toLowerCase().includes(s)) ||
-                       (item.price && String(item.price).toLowerCase().includes(s));
+                       (item.price && String(item.price).toLowerCase().includes(s)) ||
+                       (item.category && String(item.category).toLowerCase().includes(s));
             });
         }
 
@@ -77,10 +142,27 @@ router.get("/", async (req, res) => {
     }
 });
 
+// GET /api/catalogue/products/categories
+router.get("/categories", async (req, res) => {
+    try {
+        const { data, error } = await req.supabase
+            .from("categories")
+            .select("name")
+            .order("name", { ascending: true });
+
+        if (error) throw error;
+        res.status(200).json(data.map(c => c.name));
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // POST /api/catalogue/products
 router.post("/", requireRole('admin'), async (req, res) => {
     try {
         const insertData = { ...req.body };
+        const category = insertData.category;
+        delete insertData.category;
         delete insertData.id;
         delete insertData.created_at;
 
@@ -91,6 +173,14 @@ router.post("/", requireRole('admin'), async (req, res) => {
             .single();
 
         if (error) throw error;
+
+        if (category) {
+            await updateProductCategoryRelation(req.supabase, data.id, category);
+            data.category = category;
+        } else {
+            data.category = null;
+        }
+
         res.status(201).json(data);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -101,6 +191,8 @@ router.post("/", requireRole('admin'), async (req, res) => {
 router.put("/:id", requireRole('admin', 'employee'), async (req, res) => {
     try {
         let updateData = { ...req.body };
+        const category = updateData.category;
+        delete updateData.category;
         delete updateData.id;
         delete updateData.created_at;
 
@@ -112,19 +204,40 @@ router.put("/:id", requireRole('admin', 'employee'), async (req, res) => {
             }
         }
 
-        if (Object.keys(updateData).length === 0) {
-            return res.status(400).json({ error: "No valid fields to update or insufficient permissions" });
+        let updatedProduct = null;
+        if (Object.keys(updateData).length > 0) {
+            const { data, error } = await req.supabase
+                .from("products")
+                .update(updateData)
+                .eq("id", req.params.id)
+                .select()
+                .single();
+
+            if (error) throw error;
+            updatedProduct = data;
+        } else {
+            const { data, error } = await req.supabase
+                .from("products")
+                .select("*")
+                .eq("id", req.params.id)
+                .single();
+            if (error) throw error;
+            updatedProduct = data;
         }
 
-        const { data, error } = await req.supabase
-            .from("products")
-            .update(updateData)
-            .eq("id", req.params.id)
-            .select()
-            .single();
+        if (req.role === 'admin' && category !== undefined) {
+            await updateProductCategoryRelation(req.supabase, updatedProduct.id, category);
+            updatedProduct.category = category;
+        } else {
+            const { data: currentCat } = await req.supabase
+                .from("categories")
+                .select("name")
+                .contains("product_ids", [updatedProduct.id])
+                .maybeSingle();
+            updatedProduct.category = currentCat ? currentCat.name : null;
+        }
 
-        if (error) throw error;
-        res.status(200).json(data);
+        res.status(200).json(updatedProduct);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -151,10 +264,14 @@ router.delete("/", requireRole('admin'), async (req, res) => {
 // DELETE /api/catalogue/products/:id
 router.delete("/:id", requireRole('admin'), async (req, res) => {
     try {
+        const productId = parseInt(req.params.id);
+        
+        await updateProductCategoryRelation(req.supabase, productId, null);
+
         const { error } = await req.supabase
             .from("products")
             .delete()
-            .eq("id", req.params.id);
+            .eq("id", productId);
 
         if (error) throw error;
         res.status(200).json({ success: true });
