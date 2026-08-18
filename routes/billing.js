@@ -326,30 +326,21 @@ router.post("/export", requireRole('admin'), async (req, res) => {
         }
         if (tables.includes("products")) {
             const data = await fetchTableData("products", false);
-            
-            const { data: allCategories } = await req.supabase
+            appendSheetSafe(wb, data, "Products");
+
+            const { data: categoriesData, error: catError } = await req.supabase
                 .from("categories")
                 .select("*");
-            
-            const productCategoryMap = {};
-            if (allCategories) {
-                allCategories.forEach(cat => {
-                    if (cat.product_ids) {
-                        cat.product_ids.forEach(pId => {
-                            productCategoryMap[pId] = cat.name;
-                        });
-                    }
-                });
-            }
+            if (catError) throw catError;
 
-            const formattedProducts = (data || []).map(prod => {
+            const formattedCategories = (categoriesData || []).map(cat => {
                 return {
-                    ...prod,
-                    category: productCategoryMap[prod.id] || null
+                    id: cat.id,
+                    name: cat.name,
+                    product_ids: cat.product_ids ? JSON.stringify(cat.product_ids) : "[]"
                 };
             });
-
-            appendSheetSafe(wb, formattedProducts, "Products");
+            appendSheetSafe(wb, formattedCategories, "Categories");
         }
         if (tables.includes("services")) {
             const data = await fetchTableData("services", false);

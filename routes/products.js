@@ -59,7 +59,7 @@ async function updateProductCategoryRelation(supabase, productId, newCategoryNam
 router.get("/", async (req, res) => {
     try {
         const page = parseInt(req.query.page) || 1;
-        const pageSize = 8;
+        const pageSize = parseInt(req.query.pageSize) || 8;
         const search = req.query.search || '';
         
         const start = (page - 1) * pageSize;
@@ -99,6 +99,11 @@ router.get("/", async (req, res) => {
         filteredData.forEach(item => {
             item.category = productCategoryMap[item.id] || null;
         });
+
+        const categoryQuery = req.query.category || '';
+        if (categoryQuery) {
+            filteredData = filteredData.filter(item => item.category && item.category.toLowerCase() === categoryQuery.toLowerCase());
+        }
 
         if (search) {
             const s = search.toLowerCase();
@@ -152,6 +157,44 @@ router.get("/categories", async (req, res) => {
 
         if (error) throw error;
         res.status(200).json(data.map(c => c.name));
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /api/catalogue/products/categories/import
+router.post("/categories/import", requireRole('admin'), async (req, res) => {
+    try {
+        const categories = req.body;
+        if (!Array.isArray(categories)) {
+            return res.status(400).json({ error: "Invalid payload format. Expected array." });
+        }
+
+        for (const cat of categories) {
+            const { name, product_ids } = cat;
+            if (!name) continue;
+
+            const ids = (product_ids || []).map(id => parseInt(id)).filter(id => !isNaN(id));
+
+            const { data: targetCat } = await req.supabase
+                .from("categories")
+                .select("*")
+                .ilike("name", name)
+                .maybeSingle();
+
+            if (targetCat) {
+                const mergedIds = [...new Set([...(targetCat.product_ids || []), ...ids])];
+                await req.supabase
+                    .from("categories")
+                    .update({ product_ids: mergedIds })
+                    .eq("id", targetCat.id);
+            } else {
+                await req.supabase
+                    .from("categories")
+                    .insert([{ name, product_ids: ids }]);
+            }
+        }
+        res.status(200).json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -364,6 +407,7 @@ router.post("/parse-file", requireRole('admin'), upload.single("file"), async (r
 
         let parsedData = [];
         let linksData = [];
+        let categoriesData = [];
 
         if (req.file.mimetype === 'text/csv' || req.file.originalname.endsWith('.csv')) {
             const csvString = req.file.buffer.toString('utf-8');
@@ -381,6 +425,15 @@ router.post("/parse-file", requireRole('admin'), upload.single("file"), async (r
             });
             if (linkSheetName) {
                 linksData = xlsx.utils.sheet_to_json(workbook.Sheets[linkSheetName]);
+            }
+
+            // Check for categories worksheet (case-insensitive)
+            const categoriesSheetName = workbook.SheetNames.find(name => {
+                const lower = name.toLowerCase();
+                return lower.includes("category") || lower.includes("categories");
+            });
+            if (categoriesSheetName) {
+                categoriesData = xlsx.utils.sheet_to_json(workbook.Sheets[categoriesSheetName]);
             }
         } else {
             return res.status(400).json({ error: "Invalid file type. Only CSV or XLSX allowed." });
@@ -403,8 +456,9 @@ router.post("/parse-file", requireRole('admin'), upload.single("file"), async (r
 
         const formattedItems = normalizeKeys(parsedData);
         const formattedLinks = normalizeKeys(linksData);
+        const formattedCategories = normalizeKeys(categoriesData);
 
-        res.status(200).json({ items: formattedItems, links: formattedLinks });
+        res.status(200).json({ items: formattedItems, links: formattedLinks, categories: formattedCategories });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

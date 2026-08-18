@@ -14,7 +14,7 @@ router.use(authenticate);
 router.get("/", async (req, res) => {
     try {
         const page = parseInt(req.query.page) || 1;
-        const pageSize = 8;
+        const pageSize = parseInt(req.query.pageSize) || 8;
         const search = req.query.search || '';
         
         const start = (page - 1) * pageSize;
