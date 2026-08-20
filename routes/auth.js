@@ -97,6 +97,21 @@ router.post('/signup', async (req, res) => {
     // Attempt to insert profile. Note: Requires RLS insert policy on profiles or service role key
     if (data.user) {
         try {
+            // Generate unique uid
+            let uid;
+            let isUnique = false;
+            while (!isUnique) {
+                uid = 'emp_' + crypto.randomBytes(3).toString('hex');
+                const { data: existing } = await supabase
+                    .from('profiles')
+                    .select('id')
+                    .eq('uid', uid)
+                    .maybeSingle();
+                if (!existing) {
+                    isUnique = true;
+                }
+            }
+
             const { error: profileError } = await supabase
                 .from('profiles')
                 .insert([{
@@ -104,7 +119,8 @@ router.post('/signup', async (req, res) => {
                     full_name: full_name || '',
                     role: role || 'employee',
                     email: email,
-                    password: encrypt(password)
+                    password: encrypt(password),
+                    uid: uid
                 }]);
                 
             if (profileError) {
