@@ -10,6 +10,7 @@ const productsRouter = require("../routes/products");
 const servicesRouter = require("../routes/services");
 const authRouter = require("../routes/auth");
 const billingRouter = require("../routes/billing");
+const { router: attendanceRouter, runDailyRolloverInternal } = require("../routes/attendance");
 const supabase = require("../supabaseClient");
 
 const app = express();
@@ -22,6 +23,7 @@ app.use("/api/auth", authRouter);
 app.use("/api/catalogue/products", productsRouter);
 app.use("/api/catalogue/services", servicesRouter);
 app.use("/api/billing", billingRouter);
+app.use("/api/attendance", attendanceRouter);
 
 // Health check
 app.get("/", (req, res) => {
@@ -84,6 +86,38 @@ app.get("/:customerId/:billId", async (req, res) => {
         res.status(500).send("<h1 style='text-align:center; margin-top:50px; font-family:sans-serif;'>Server Error</h1>");
     }
 });
+
+// Setup automatic midnight daily rollover (runs in local persistent Node server)
+let lastRolloverDateString = new Date().toDateString();
+
+setInterval(async () => {
+    const todayDateString = new Date().toDateString();
+    if (todayDateString !== lastRolloverDateString) {
+        console.log(`[Scheduler] Date changed from ${lastRolloverDateString} to ${todayDateString}. Executing daily rollover...`);
+        lastRolloverDateString = todayDateString;
+        try {
+            await runDailyRolloverInternal();
+            console.log("[Scheduler] Daily rollover completed successfully.");
+        } catch (err) {
+            console.error("[Scheduler] Daily rollover failed:", err);
+        }
+    }
+}, 60000); // Check once a minute
+
+// Run startup catchup check to make sure yesterday's rollover wasn't missed
+setTimeout(async () => {
+    console.log("[Startup] Checking for missed daily attendance rollovers...");
+    try {
+        const result = await runDailyRolloverInternal();
+        if (result && result.skipped) {
+            console.log("[Startup] Missed rollover check: No action required.");
+        } else if (result) {
+            console.log(`[Startup] Missed rollover check: Rollover caught up for date ${result.date}.`);
+        }
+    } catch (err) {
+        console.error("[Startup] Missed rollover catch-up failed:", err);
+    }
+}, 5000);
 
 if (process.env.NODE_ENV !== 'production') {
     const port = PORT;

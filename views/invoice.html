@@ -290,7 +290,7 @@
     </div>
 
     <script>
-        const invoiceData = /{{INVOICE_JSON}}/;
+        const invoiceData = {{INVOICE_JSON}};
 
         async function downloadPDF() {
             const { jsPDF } = window.jspdf;
@@ -362,8 +362,8 @@
 
             // 5. Build Table Data
             const tableRows = [];
-            if (invoiceData.invoice_items) {
-                invoiceData.invoice_items.forEach(item => {
+            if (invoiceData.items) {
+                invoiceData.items.forEach(item => {
                     tableRows.push([
                         item.item_name,
                         item.qty.toString(),
