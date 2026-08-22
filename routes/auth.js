@@ -42,7 +42,7 @@ router.post('/login', async (req, res) => {
     // Create an ephemeral client so we don't poison the global service_role client with a user session
     const tempClient = createClient(
         process.env.SUPABASE_URL,
-        process.env.SUPABASE_SECRET || process.env.SUPABASE_KEY,
+        process.env.SUPABASE_KEY,
         { auth: { persistSession: false, autoRefreshToken: false } }
     );
     
@@ -61,7 +61,7 @@ router.post('/login', async (req, res) => {
         .eq('id', data.user.id)
         .single();
 
-    const decryptedPassword = profile?.password ? decrypt(profile.password) : "";
+    const decryptedPassword = profile?.password || "";
 
     res.json({
         ...data,
@@ -81,7 +81,7 @@ router.post('/signup', async (req, res) => {
     // Create an ephemeral client so we don't poison the global service_role client
     const tempClient = createClient(
         process.env.SUPABASE_URL,
-        process.env.SUPABASE_SECRET || process.env.SUPABASE_KEY,
+        process.env.SUPABASE_KEY,
         { auth: { persistSession: false, autoRefreshToken: false } }
     );
     
@@ -101,7 +101,7 @@ router.post('/signup', async (req, res) => {
             let uid;
             let isUnique = false;
             while (!isUnique) {
-                uid = 'emp_' + crypto.randomBytes(3).toString('hex');
+                uid = 'user_' + crypto.randomBytes(3).toString('hex');
                 const { data: existing } = await supabase
                     .from('profiles')
                     .select('id')
@@ -119,7 +119,7 @@ router.post('/signup', async (req, res) => {
                     full_name: full_name || '',
                     role: role || 'employee',
                     email: email,
-                    password: encrypt(password),
+                    password: password,
                     uid: uid
                 }]);
                 
@@ -251,6 +251,16 @@ router.post('/reset-password', async (req, res) => {
     if (updateError) {
         return res.status(500).json({ error: updateError.message });
     }
+
+    // Update password in public.profiles table in plaintext
+    const { error: profileUpdateError } = await supabase
+        .from('profiles')
+        .update({ password: newPassword })
+        .eq('id', profile.id);
+
+    if (profileUpdateError) {
+        return res.status(500).json({ error: "Failed to update profiles table: " + profileUpdateError.message });
+    }
     
     res.json({ success: true, message: "Password updated successfully." });
 });
@@ -258,17 +268,27 @@ router.post('/reset-password', async (req, res) => {
 // GET /api/auth/profile
 router.get('/profile', authenticate, async (req, res) => {
     try {
-        const { data, error } = await req.supabase
+        let targetId = req.user.id;
+        if (req.query.id && req.query.id !== req.user.id) {
+            // Check if requester is admin
+            const { data: requesterProfile } = await supabase
+                .from('profiles')
+                .select('role')
+                .eq('id', req.user.id)
+                .single();
+            if (!requesterProfile || requesterProfile.role !== 'admin') {
+                return res.status(403).json({ error: "Access denied. Only admins can view other user profiles." });
+            }
+            targetId = req.query.id;
+        }
+
+        const { data, error } = await supabase
             .from('profiles')
             .select('*')
-            .eq('id', req.user.id)
+            .eq('id', targetId)
             .single();
 
         if (error && error.code !== 'PGRST116') throw error;
-        
-        if (data && data.password) {
-            data.password = decrypt(data.password);
-        }
         
         res.json({
             ...req.user,
@@ -324,9 +344,22 @@ router.delete('/account', authenticate, async (req, res) => {
 // PUT /api/auth/profile
 router.put('/profile', authenticate, async (req, res) => {
     try {
-        const { full_name, email, password } = req.body;
+        const { id, full_name, email, password, uid } = req.body;
         if (!full_name || !email) {
             return res.status(400).json({ error: "Name and email are required" });
+        }
+
+        let targetId = id || req.user.id;
+        if (targetId !== req.user.id) {
+            // Check if requester is admin
+            const { data: requesterProfile } = await supabase
+                .from('profiles')
+                .select('role')
+                .eq('id', req.user.id)
+                .single();
+            if (!requesterProfile || requesterProfile.role !== 'admin') {
+                return res.status(403).json({ error: "Access denied. Only admins can update other user profiles." });
+            }
         }
 
         // Check if email already exists on another account
@@ -334,7 +367,7 @@ router.put('/profile', authenticate, async (req, res) => {
             .from('profiles')
             .select('id')
             .eq('email', email)
-            .neq('id', req.user.id)
+            .neq('id', targetId)
             .maybeSingle();
 
         if (checkError) throw checkError;
@@ -342,46 +375,85 @@ router.put('/profile', authenticate, async (req, res) => {
             return res.status(400).json({ error: "Email already exists" });
         }
 
-        // 1. Update Supabase Auth email if it changed
-        if (email !== req.user.email) {
-            const { error: authError } = await supabase.auth.admin.updateUserById(
-                req.user.id,
-                { email: email }
-            );
-            if (authError) {
-                return res.status(500).json({ error: "Failed to update auth email: " + authError.message });
+        // Check if UID already exists on another account
+        if (uid) {
+            const { data: existingUidUser, error: uidCheckError } = await supabase
+                .from('profiles')
+                .select('id')
+                .eq('uid', uid)
+                .neq('id', targetId)
+                .maybeSingle();
+
+            if (uidCheckError) throw uidCheckError;
+            if (existingUidUser) {
+                return res.status(400).json({ error: "User ID already exists" });
             }
         }
 
-        // 1b. Update Supabase Auth password if provided
+        // Fetch current profile email and password to log in tempClient
+        const { data: targetProfile, error: targetProfileErr } = await supabase
+            .from('profiles')
+            .select('email, password')
+            .eq('id', targetId)
+            .single();
+
+        if (targetProfileErr) throw targetProfileErr;
+
+        const currentDecryptedPassword = targetProfile.password || "";
+
+        // Create standard temp client using public key
+        const tempClient = createClient(
+            process.env.SUPABASE_URL,
+            process.env.SUPABASE_KEY,
+            { auth: { persistSession: false, autoRefreshToken: false } }
+        );
+
+        // Sign in as target user to establish standard user auth session context
+        const { error: loginErr } = await tempClient.auth.signInWithPassword({
+            email: targetProfile.email,
+            password: currentDecryptedPassword
+        });
+
+        if (loginErr) {
+            return res.status(500).json({ error: "Failed to establish target user auth session: " + loginErr.message });
+        }
+
+        // 1. Update Supabase Auth details using standard updateUser
+        const updateParams = {
+            data: { full_name: full_name }
+        };
+        if (email !== targetProfile.email) {
+            updateParams.email = email;
+        }
         if (password) {
-            const { error: authError } = await supabase.auth.admin.updateUserById(
-                req.user.id,
-                { password: password }
-            );
-            if (authError) {
-                return res.status(500).json({ error: "Failed to update auth password: " + authError.message });
-            }
+            updateParams.password = password;
+        }
+
+        const { error: authError } = await tempClient.auth.updateUser(updateParams);
+        if (authError) {
+            return res.status(500).json({ error: "Failed to update auth details: " + authError.message });
         }
 
         // 2. Update profiles table
         const updateData = { full_name, email };
+        if(email) {
+            updateData.email = email;
+        }
         if (password) {
-            updateData.password = encrypt(password);
+            updateData.password = password;
+        }
+        if (uid) {
+            updateData.uid = uid;
         }
 
         const { data, error } = await supabase
             .from('profiles')
             .update(updateData)
-            .eq('id', req.user.id)
+            .eq('id', targetId)
             .select()
             .single();
 
         if (error) throw error;
-
-        if (data && data.password) {
-            data.password = decrypt(data.password);
-        }
 
         res.json({
             success: true,

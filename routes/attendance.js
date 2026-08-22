@@ -72,6 +72,10 @@ router.post('/mark', async (req, res) => {
             arrivedAtDate.getMonth() === now.getMonth() &&
             arrivedAtDate.getDate() === now.getDate();
 
+        if (row.present === true && isSameDay) {
+            return res.status(400).json({ error: "Attendance already complete. User has already checked out for today." });
+        }
+
         if (row.present === false && row.arrived_at !== null && isSameDay) {
             // Checkout: Add departed_at and mark present as true
             const { data: updatedRow, error: updateErr } = await supabase
